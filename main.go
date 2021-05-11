@@ -29,9 +29,7 @@ import (
 )
 
 const (
-	logcontextpath = "hansolsocket"
-	ctxservicename = "hansolsocket" // 신한카드 snmp 모듈 서비스명: ismonsnmpgo   SKBB 소켓 모듈 서비스명: hansolsocket
-	programVersion = "v.1.0.3"      // 공백이 트림되지 않게 처리
+	programVersion = "v.1.0.3" // 공백이 트림되지 않게 처리
 )
 
 var (
@@ -46,6 +44,8 @@ var (
 	fileHashTempPath       string
 	fileHashInitailKeyword string
 	fileHashKeywords       []string
+	logcontextpath         string
+	ctxservicename         string
 )
 
 type program struct{}
@@ -61,6 +61,7 @@ type FileHashConfig struct {
 	TempPath       string   `yaml:"temp-path"`
 	InitialKeyword string   `yaml:"initial-keyword"`
 	Keywords       []string `yaml:"keywords"`
+	ModuleName     string   `yaml:"module-name"`
 }
 
 // FileHashRequest is ...
@@ -147,6 +148,7 @@ func (fhr *FileHashResponse) getFileHashResponse() []byte {
 // TODO: GIN SWAGGER 추가 : https://dejavuqa.tistory.com/330
 func main() {
 
+	// from cmd flag
 	currpath := flag.String("currpath", "H:/shcsw", "program path define")
 	port := flag.String("port", "8080", "http listen port")
 	logcolor := flag.Bool("color", false, "")
@@ -175,6 +177,31 @@ func main() {
 	listenPort = *port
 	logColorEnable = *logcolor
 
+	// Get Config From yaml
+	confFilename, _ := filepath.Abs("config.yml")
+	yamlFile, err := ioutil.ReadFile(confFilename)
+	var fileConfig FileHashConfig
+	err = yaml.Unmarshal(yamlFile, &fileConfig)
+	if err != nil {
+		panic(err)
+	}
+
+	prn("TargetPath:", fileConfig.TargetPath, "TempPath:", fileConfig.TempPath, ">>", len(fileConfig.Keywords))
+
+	fileHashTargetPath = fileConfig.TargetPath
+	fileHashTempPath = fileConfig.TempPath
+	fileHashInitailKeyword = fileConfig.InitialKeyword
+	fileHashKeywords = fileConfig.Keywords
+
+	logcontextpath = fileConfig.ModuleName
+	ctxservicename = fileConfig.ModuleName
+
+	prn("fileHashKeywords -------------------------------------")
+	for idx, keyword := range fileHashKeywords {
+		fmt.Println(idx, keyword)
+	}
+
+	// For Logging
 	createDirIfNotExist(*currpath + "/" + logcontextpath + "-logs")
 
 	l := &lumberjack.Logger{
@@ -236,25 +263,6 @@ func (p *program) Stop(s service.Service) error {
 }
 
 func (p *program) run() {
-
-	confFilename, _ := filepath.Abs("config.yml")
-	yamlFile, err := ioutil.ReadFile(confFilename)
-	var fileConfig FileHashConfig
-	err = yaml.Unmarshal(yamlFile, &fileConfig)
-	if err != nil {
-		panic(err)
-	}
-
-	prn("TargetPath:", fileConfig.TargetPath, "TempPath:", fileConfig.TempPath, ">>", len(fileConfig.Keywords))
-
-	fileHashTargetPath = fileConfig.TargetPath
-	fileHashTempPath = fileConfig.TempPath
-	fileHashInitailKeyword = fileConfig.InitialKeyword
-	fileHashKeywords = fileConfig.Keywords
-
-	for idx, keyword := range fileHashKeywords {
-		fmt.Println(idx, keyword)
-	}
 
 	// #########################################################################################
 	// Disable Console Color, you don't need console color when writing the logs to file.

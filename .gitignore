@@ -15,7 +15,7 @@
 # vendor/
 
 
-hansolsocket-logs/
+*-logs/
 *.uploaded
 myfile
 filehash.go

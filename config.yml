@@ -1,3 +1,8 @@
+# golbal config
+# - snmp 모듈 서비스명: ismonsnmpgo
+# - 소켓 모듈 서비스명: hansolsocket
+# - file-hash 모듈 서비스명: filehash
+module-name: filehash
 # for file-hash api config
 target-path: "/home/pjw/go-work/ismon-agent/hansol-std/jina-api"
 temp-path: "/home/pjw/go-work/ismon-agent/hansol-std/jina-api"
