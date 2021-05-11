@@ -56,6 +56,7 @@ type Login struct {
 	Password string `form:"password" json:"password" xml:"password" binding:"required"`
 }
 
+// FileHashConfig is ...
 type FileHashConfig struct {
 	TargetPath     string   `yaml:"target-path"`
 	TempPath       string   `yaml:"temp-path"`
