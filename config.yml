@@ -1,0 +1,7 @@
+# for file-hash api config
+target-path: "/home/pjw/go-work/ismon-agent/hansol-std/jina-api"
+temp-path: "/home/pjw/go-work/ismon-agent/hansol-std/jina-api"
+initial-keyword: "--------------"
+keywords:
+  - "Content-Disposition"
+  - "Content-Type"

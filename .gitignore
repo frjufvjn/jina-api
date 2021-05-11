@@ -14,4 +14,9 @@
 # Dependency directories (remove the comment below to include it)
 # vendor/
 
-jina-api
+
+hansolsocket-logs/
+*.uploaded
+myfile
+filehash.go
+sys-mon.7z

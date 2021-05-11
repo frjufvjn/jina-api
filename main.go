@@ -3,14 +3,19 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
+	"io/ioutil"
 	"log"
 	"net"
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
@@ -20,6 +25,7 @@ import (
 	"github.com/gosnmp/gosnmp"
 	"github.com/kardianos/service"
 	"gopkg.in/natefinch/lumberjack.v2"
+	"gopkg.in/yaml.v2"
 )
 
 const (
@@ -29,12 +35,17 @@ const (
 )
 
 var (
-	logn          = log.Println
-	logf          = log.Printf
-	prn           = fmt.Println
-	prf           = fmt.Printf
-	serviceLogger service.Logger
-	listenPort    string
+	logn                   = log.Println
+	logf                   = log.Printf
+	prn                    = fmt.Println
+	prf                    = fmt.Printf
+	serviceLogger          service.Logger
+	listenPort             string
+	logColorEnable         = false
+	fileHashTargetPath     string
+	fileHashTempPath       string
+	fileHashInitailKeyword string
+	fileHashKeywords       []string
 )
 
 type program struct{}
@@ -43,6 +54,26 @@ type program struct{}
 type Login struct {
 	User     string `form:"user" json:"user" xml:"user"  binding:"required"`
 	Password string `form:"password" json:"password" xml:"password" binding:"required"`
+}
+
+type FileHashConfig struct {
+	TargetPath     string   `yaml:"target-path"`
+	TempPath       string   `yaml:"temp-path"`
+	InitialKeyword string   `yaml:"initial-keyword"`
+	Keywords       []string `yaml:"keywords"`
+}
+
+// FileHashRequest is ...
+type FileHashRequest struct {
+	FileName string `json:"filename" binding:"required"`
+	FileHash string `json:"filehash" binding:"required"`
+	ApiKey   string `json:"api-key" binding:"required"`
+}
+
+// FileHashResponse is ...
+type FileHashResponse struct {
+	Result        string `json:"result"`
+	ResultMessage string `json:"message"`
 }
 
 // SockRequest is ....
@@ -107,12 +138,18 @@ func (sr *SockResponse) getSockResponse() string {
 	return string(resJSON)
 }
 
+func (fhr *FileHashResponse) getFileHashResponse() []byte {
+	resJSON, _ := json.Marshal(fhr)
+	return []byte(string(resJSON))
+}
+
 // TCP SOCKET / SNMPv3 API 서버
 // TODO: GIN SWAGGER 추가 : https://dejavuqa.tistory.com/330
 func main() {
 
 	currpath := flag.String("currpath", "H:/shcsw", "program path define")
 	port := flag.String("port", "8080", "http listen port")
+	logcolor := flag.Bool("color", false, "")
 	flag.Parse()
 
 	if !isFlagInputed("port") {
@@ -136,6 +173,7 @@ func main() {
 	}
 
 	listenPort = *port
+	logColorEnable = *logcolor
 
 	createDirIfNotExist(*currpath + "/" + logcontextpath + "-logs")
 
@@ -199,9 +237,30 @@ func (p *program) Stop(s service.Service) error {
 
 func (p *program) run() {
 
+	confFilename, _ := filepath.Abs("config.yml")
+	yamlFile, err := ioutil.ReadFile(confFilename)
+	var fileConfig FileHashConfig
+	err = yaml.Unmarshal(yamlFile, &fileConfig)
+	if err != nil {
+		panic(err)
+	}
+
+	prn("TargetPath:", fileConfig.TargetPath, "TempPath:", fileConfig.TempPath, ">>", len(fileConfig.Keywords))
+
+	fileHashTargetPath = fileConfig.TargetPath
+	fileHashTempPath = fileConfig.TempPath
+	fileHashInitailKeyword = fileConfig.InitialKeyword
+	fileHashKeywords = fileConfig.Keywords
+
+	for idx, keyword := range fileHashKeywords {
+		fmt.Println(idx, keyword)
+	}
+
 	// #########################################################################################
 	// Disable Console Color, you don't need console color when writing the logs to file.
-	// gin.DisableConsoleColor()
+	if !logColorEnable {
+		gin.DisableConsoleColor()
+	}
 
 	// Logging to a file.
 	// f, _ := os.Create("gin.log")
@@ -262,6 +321,41 @@ func (p *program) run() {
 
 		c.JSON(http.StatusOK, gin.H{"status": "long_sync response"})
 	})
+
+	router.POST("/file-hash", func(c *gin.Context) {
+		var req FileHashRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"result":  "fail",
+				"message": err.Error(),
+			})
+			return
+		}
+
+		timeoutSecDuration := "30s"
+		maxDuration, _ := time.ParseDuration(timeoutSecDuration)
+		ctx, _ := context.WithTimeout(context.Background(), maxDuration)
+
+		start := time.Now()
+		result, err := fileHashProcessithCtxWrapper(ctx, req)
+		logf("duration:%v result:%s\n", time.Since(start), result)
+
+		if err != nil {
+			logn(err)
+			c.JSON(http.StatusRequestTimeout, gin.H{
+				"result":  "fail",
+				"message": err.Error(),
+			})
+			return
+		}
+
+		res := &FileHashResponse{}
+		res.Result = "success"
+		res.ResultMessage = "no message"
+
+		c.Data(http.StatusOK, gin.MIMEJSON, res.getFileHashResponse())
+	})
+
 	/*
 	   type SockRequest struct {
 	   	SendStr     string `json:"sendstr" binding:"required"`
@@ -364,6 +458,106 @@ func (p *program) run() {
 	})
 
 	router.Run(":" + listenPort) // listen and serve on 0.0.0.0:8080
+}
+
+func fileHashProcessithCtxWrapper(ctx context.Context, req FileHashRequest) (bool, error) {
+	done := make(chan bool)
+
+	go func() {
+		done <- fileHashProcess(req)
+	}()
+
+	select {
+	case <-ctx.Done():
+		return false, ctx.Err()
+	case result := <-done:
+		return result, nil
+	}
+}
+
+// fileHashProcess(targetFilePath string, oHash string, tmpFilePrefix string)
+func fileHashProcess(req FileHashRequest) bool {
+
+	target := fileHashTargetPath + "/" + req.FileName
+	oHash := req.FileHash
+	tmpFilePrefix := req.FileHash
+
+	input, err := ioutil.ReadFile(target)
+	if err != nil {
+		log.Fatalln(err)
+		return false
+	}
+
+	lines := strings.Split(string(input), "\n")
+
+	// Manupulate target file (multi-part uploaded file http chunk string)
+	cnt := 0
+	for i, line := range lines {
+		if strings.Contains(line, fileHashInitailKeyword) {
+			// fmt.Println(line, ", ", len(lines), ", ", i)
+			lines = remove(lines, i)
+			cnt++
+		}
+
+		if i > 0 && cnt > 0 {
+
+			if (i - cnt) >= len(lines) {
+				break
+			}
+
+			for _, keyword := range fileHashKeywords {
+				if strings.Contains(lines[i-cnt], keyword) {
+					fmt.Println(lines[i-cnt])
+					lines = remove(lines, i-cnt)
+				}
+			}
+		}
+	}
+
+	tempFileName := tmpFilePrefix + "-" + strconv.FormatInt(time.Now().UnixNano(), 10)
+
+	output := strings.Join(lines, "\n")
+	err = ioutil.WriteFile(fileHashTempPath+"/"+tempFileName, []byte(output[2:len(output)-2]), 0644)
+	if err != nil {
+		log.Fatalln(err)
+		return false
+	}
+
+	calculatedHash := fileHash(fileHashTempPath + "/" + tempFileName)
+
+	errRemove := os.Remove(fileHashTempPath + "/" + tempFileName)
+	if errRemove != nil {
+		log.Fatalln(errRemove)
+	}
+
+	fmt.Printf("[%s]\n", oHash)
+	fmt.Printf("[%s]\n", calculatedHash)
+
+	return (oHash == calculatedHash)
+}
+
+func remove(slice []string, s int) []string {
+	return append(slice[:s], slice[s+1:]...)
+}
+
+func fileHash(src string) string {
+	f, err := os.Open(src)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer f.Close()
+
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		log.Fatal(err)
+	}
+
+	return BytesToString(h.Sum(nil))
+}
+
+func BytesToString(data []byte) string {
+	// return string(data[:])
+	return hex.EncodeToString(data)
 }
 
 func sockWithCtxWrapper(ctx context.Context, req SockRequest) (string, error) {
