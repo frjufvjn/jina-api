@@ -10,3 +10,4 @@ initial-keyword: "--------------"
 keywords:
   - "Content-Disposition"
   - "Content-Type"
+file-hash-timeout: 15

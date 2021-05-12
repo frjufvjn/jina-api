@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -44,6 +45,7 @@ var (
 	fileHashTempPath       string
 	fileHashInitailKeyword string
 	fileHashKeywords       []string
+	fileHashTimeout        int
 	logcontextpath         string
 	ctxservicename         string
 )
@@ -58,18 +60,20 @@ type Login struct {
 
 // FileHashConfig is ...
 type FileHashConfig struct {
-	TargetPath     string   `yaml:"target-path"`
-	TempPath       string   `yaml:"temp-path"`
-	InitialKeyword string   `yaml:"initial-keyword"`
-	Keywords       []string `yaml:"keywords"`
-	ModuleName     string   `yaml:"module-name"`
+	TargetPath      string   `yaml:"target-path"`
+	TempPath        string   `yaml:"temp-path"`
+	InitialKeyword  string   `yaml:"initial-keyword"`
+	Keywords        []string `yaml:"keywords"`
+	ModuleName      string   `yaml:"module-name"`
+	FileHashTimeout int      `yaml:"file-hash-timeout"`
 }
 
 // FileHashRequest is ...
 type FileHashRequest struct {
-	FileName string `json:"filename" binding:"required"`
-	FileHash string `json:"filehash" binding:"required"`
-	ApiKey   string `json:"api-key" binding:"required"`
+	FileSubPath string `json:"filesubpath" binding:"required"`
+	FileName    string `json:"filename" binding:"required"`
+	FileHash    string `json:"filehash" binding:"required"`
+	ApiKey      string `json:"api-key" binding:"required"`
 }
 
 // FileHashResponse is ...
@@ -150,7 +154,7 @@ func (fhr *FileHashResponse) getFileHashResponse() []byte {
 func main() {
 
 	// from cmd flag
-	currpath := flag.String("currpath", "H:/shcsw", "program path define")
+	currpath := flag.String("currpath", "H:/shcsw", "program path define (WARNNING:Enter the absolute path when starting as a service.)")
 	port := flag.String("port", "8080", "http listen port")
 	logcolor := flag.Bool("color", false, "")
 	flag.Parse()
@@ -178,6 +182,8 @@ func main() {
 	listenPort = *port
 	logColorEnable = *logcolor
 
+	prn("cmd args -> currpath:", *currpath, "port:", listenPort, "logColorEnable:", logColorEnable)
+
 	// Get Config From yaml
 	confFilename, _ := filepath.Abs("config.yml")
 	yamlFile, err := ioutil.ReadFile(confFilename)
@@ -193,6 +199,7 @@ func main() {
 	fileHashTempPath = fileConfig.TempPath
 	fileHashInitailKeyword = fileConfig.InitialKeyword
 	fileHashKeywords = fileConfig.Keywords
+	fileHashTimeout = fileConfig.FileHashTimeout
 
 	logcontextpath = fileConfig.ModuleName
 	ctxservicename = fileConfig.ModuleName
@@ -206,7 +213,7 @@ func main() {
 	createDirIfNotExist(*currpath + "/" + logcontextpath + "-logs")
 
 	l := &lumberjack.Logger{
-		Filename:   *currpath + "/" + logcontextpath + "-logs" + "/ismonsnmp.log",
+		Filename:   *currpath + "/" + logcontextpath + "-logs/" + ctxservicename + ".log",
 		MaxSize:    10, // megabytes
 		MaxBackups: 3,
 		MaxAge:     28,   //days
@@ -341,20 +348,27 @@ func (p *program) run() {
 			return
 		}
 
-		timeoutSecDuration := "30s"
+		timeoutSecDuration := strconv.Itoa(fileHashTimeout) + "s"
 		maxDuration, _ := time.ParseDuration(timeoutSecDuration)
 		ctx, _ := context.WithTimeout(context.Background(), maxDuration)
 
 		start := time.Now()
-		result, err := fileHashProcessithCtxWrapper(ctx, req)
-		logf("duration:%v result:%s\n", time.Since(start), result)
+		err := fileHashProcessWithCtxWrapper(ctx, req)
+		logf("duration:%v result:%s\n", time.Since(start), err)
 
 		if err != nil {
 			logn(err)
-			c.JSON(http.StatusRequestTimeout, gin.H{
-				"result":  "fail",
-				"message": err.Error(),
-			})
+			if err.Error() == "context deadline exceeded" {
+				c.JSON(http.StatusRequestTimeout, gin.H{
+					"result":  "fail",
+					"message": err.Error(),
+				})
+			} else {
+				c.JSON(http.StatusInternalServerError, gin.H{
+					"result":  "fail",
+					"message": err.Error(),
+				})
+			}
 			return
 		}
 
@@ -469,8 +483,8 @@ func (p *program) run() {
 	router.Run(":" + listenPort) // listen and serve on 0.0.0.0:8080
 }
 
-func fileHashProcessithCtxWrapper(ctx context.Context, req FileHashRequest) (bool, error) {
-	done := make(chan bool)
+func fileHashProcessWithCtxWrapper(ctx context.Context, req FileHashRequest) error {
+	done := make(chan error)
 
 	go func() {
 		done <- fileHashProcess(req)
@@ -478,23 +492,23 @@ func fileHashProcessithCtxWrapper(ctx context.Context, req FileHashRequest) (boo
 
 	select {
 	case <-ctx.Done():
-		return false, ctx.Err()
+		return ctx.Err()
 	case result := <-done:
-		return result, nil
+		return result
 	}
 }
 
 // fileHashProcess(targetFilePath string, oHash string, tmpFilePrefix string)
-func fileHashProcess(req FileHashRequest) bool {
+func fileHashProcess(req FileHashRequest) error {
 
-	target := fileHashTargetPath + "/" + req.FileName
+	target := fileHashTargetPath + "/" + req.FileSubPath + "/" + req.FileName
 	oHash := req.FileHash
 	tmpFilePrefix := req.FileHash
 
 	input, err := ioutil.ReadFile(target)
 	if err != nil {
-		log.Fatalln(err)
-		return false
+		logn(err)
+		return err
 	}
 
 	lines := strings.Split(string(input), "\n")
@@ -528,21 +542,25 @@ func fileHashProcess(req FileHashRequest) bool {
 	output := strings.Join(lines, "\n")
 	err = ioutil.WriteFile(fileHashTempPath+"/"+tempFileName, []byte(output[2:len(output)-2]), 0644)
 	if err != nil {
-		log.Fatalln(err)
-		return false
+		logn(err)
+		return err
 	}
 
 	calculatedHash := fileHash(fileHashTempPath + "/" + tempFileName)
 
 	errRemove := os.Remove(fileHashTempPath + "/" + tempFileName)
 	if errRemove != nil {
-		log.Fatalln(errRemove)
+		logn(errRemove)
 	}
 
-	fmt.Printf("[%s]\n", oHash)
-	fmt.Printf("[%s]\n", calculatedHash)
+	logn("[%s]\n", oHash)
+	logn("[%s]\n", calculatedHash)
 
-	return (oHash == calculatedHash)
+	if oHash == calculatedHash {
+		return nil
+	} else {
+		return errors.New("hash-inconsistent")
+	}
 }
 
 func remove(slice []string, s int) []string {
