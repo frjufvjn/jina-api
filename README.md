@@ -3,6 +3,16 @@
 - Golang TCP Socket Client API
 - Golang SNMPv3 walk Client API
 - Golang Get File Hash Checksum (from HTTP Multi-part request stream file) API
+## Build
+```
+$ go build
+
+# For windows
+$ GOOS=windows go build
+
+# For linux
+$ GOOS=linux go build
+```
 ## Windows Service Deploy
 1. Open Command Open as Administrator
 2. SERVICE_MODULE_NAME variable is ./config.yml > module-name .
