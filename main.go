@@ -162,7 +162,7 @@ func main() {
 	if !isFlagInputed("port") {
 		prn("")
 		prn("VERSION:", programVersion)
-		prn("PURPOSE: Light-Weight, Low-Latency API Server (TCP Client, SNMPv3)")
+		prn("PURPOSE: Light-Weight, Low-Latency API Server (TCP Client, SNMPv3, File hash check)")
 		prn("PUBLISHER: frjufvjn@gmail.com")
 		prn("")
 		flag.Usage()
@@ -172,7 +172,7 @@ func main() {
 	if !isFlagInputed("currpath") {
 		prn("")
 		prn("VERSION:", programVersion)
-		prn("PURPOSE: Light-Weight, Low-Latency API Server (TCP Client, SNMPv3)")
+		prn("PURPOSE: Light-Weight, Low-Latency API Server (TCP Client, SNMPv3, File hash check)")
 		prn("PUBLISHER: frjufvjn@gmail.com")
 		prn("")
 		flag.Usage()
