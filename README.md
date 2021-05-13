@@ -23,7 +23,7 @@ COMMAND = "%PATH%/jina-api.exe -port=59090 -currpath=%PATH% -color=false"
 ```
 5. if already installed service
 ```
-C:> sc delete 
+C:> sc delete "%SERVICE_MODULE_NAME%"
 ```
 6. service install
 ```
