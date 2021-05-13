@@ -8,10 +8,10 @@
 $ go build
 
 # For windows
-$ GOOS=windows go build
+$ GOOS=windows go build -o jina-api.exe
 
 # For linux
-$ GOOS=linux go build
+$ GOOS=linux go build -o jina-api.bin
 ```
 ## Windows Service Deploy
 1. Open Command Open as Administrator
