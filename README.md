@@ -1,8 +1,19 @@
 # jina-api [![Go](https://github.com/frjufvjn/jina-api/actions/workflows/go.yml/badge.svg)](https://github.com/frjufvjn/jina-api/actions/workflows/go.yml)
+## Goal
+- If the feature to make is easier to implement on golang than on Java, let us make it with you.
+- continue to add features.
 ## Features
 - Golang TCP Socket Client API
 - Golang SNMPv3 walk Client API
 - Golang Get File Hash Checksum (from HTTP Multi-part request stream file) API
+  * If the following chunk is included in the file entered through the http multipart request, a case to be deleted is found.
+  ```
+  --------------------------67c90ab8464a32d3
+  Content-Disposition: form-data; name="file"; filename="sys-mon.7z"
+  Content-Type: application/octet-stream
+  ...
+  --------------------------67c90ab8464a32d3--
+  ```
 ## Build
 ```
 $ go build
@@ -33,3 +44,4 @@ C:> sc create ismonagent Displayname= "%SERVICE_MODULE_NAME%" binpath= "%COMMAND
 ```
 C:> sc description ismonagent "jina api application server"
 ```
+## Linux Service Deploy (WIP)
