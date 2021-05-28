@@ -139,9 +139,9 @@ func (r *Output) getOutputJSON() string {
 	return string(resJSON)
 }
 
-func (sr *SockResponse) getSockResponse() string {
+func (sr *SockResponse) getSockResponse() []byte {
 	resJSON, _ := json.Marshal(sr)
-	return string(resJSON)
+	return []byte(string(resJSON))
 }
 
 func (fhr *FileHashResponse) getFileHashResponse() []byte {
@@ -434,7 +434,8 @@ func (p *program) run() {
 		sockRes.Type = req.Type
 		sockRes.Size = len(result)
 
-		c.JSON(http.StatusOK, sockRes.getSockResponse())
+		// c.JSON(http.StatusOK, sockRes.getSockResponse())
+		c.Data(http.StatusOK, gin.MIMEJSON, sockRes.getSockResponse())
 	})
 
 	router.POST("/api-snmp", func(c *gin.Context) {

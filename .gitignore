@@ -20,4 +20,5 @@
 *.uploaded
 myfile
 filehash.go
+array-mixed.go
 sys-mon.7z
